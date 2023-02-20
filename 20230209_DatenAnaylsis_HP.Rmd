@@ -1,0 +1,2957 @@
+---
+title: "Datenpotentialanalyse für ausgewählte Pumpendaten der Herborner Pumpentechnik GmbH"
+author: "M.Sc. Elena Weinkauf, M.Sc. Jose Alberto Diaz Salas"
+date: "7. Februar 2023"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+    number_sections: yes
+    theme: united
+    highlight: tango
+  word_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+
+
+
+
+<img src="V:/Aerzen_Digital_Systems/12_0_Ablage/1_Statistik/3_Elena/HP/AERZEN_Logo_P540C.png" width="220px" style="position:absolute; top:20px; right:20px;"/>
+
+
+
+# Einführung   
+
+In dem vorliegenden Markdown-Bericht werden die Telemetriedaten von zwei Wasserpumpen deskriptiv analysiert und mit Blick auf die Nutzung für ein Machine Learning Modell betrachtet. Die Pumpen werden in einem Freibad für die Umwälzung des Schwimmbeckenwassers eingesetzt. Sie werden parallel betrieben und sind an ein gemeinsames Rohrsystem angeschlossen. Die Rohdaten wurden im CSV-Format bereitgestellt. Die Daten wurden in dem Zeitraum 02.06.2022, 09:41:43 Uhr bis 09.09.2022, 23:59:56 Uhr erfasst. Der Datensatz besteht aus 22 Variablen und 1.712.076 Zeilen. Dabei ist jeweils die Hälfte der Daten je einer Pumpe zuzuordnen. Dies bedeutet, dass jeder einzelne Zeitstempel genau doppelt vorhanden ist. Die aktuellen Werte werden für einen Großteil der Variablen alle 10 Sekunden abgetastet und gespeichert. Nicht abgetastete Variablen werden mit einem Nullwert gespeichert. Eine Variablen haben nur einen einzigen Wert für jeden Eintrag. Diese dienen beispielsweise einer eindeutigen Zuordnung zu einem konkreten Datensatz. Sie haben keinen Einfluss auf die späteren Zusammenhangsanalysen und werden im Folgenden nicht näher betrachtet.     
+
+Der erste Teil des vorliegenden Berichtes beinhaltet die deskriptive Datenanalyse. Sie soll in erster Linie, einen Einblick in die Daten ermöglichen und ein erstes Gefühl für die betrachteten Variablen sowie deren statistische Zusammenhänge erzeugen. Dabei werden keine Rückschlüsse oder Erklärungen für das Verhalten gemacht. Im zweiten Teil wird auf Grundlage der vorangehenden Analyse beschrieben, wie die vorliegenden Daten für die Implementierung eines Machine Learning Modells zur Erkennung der Filterverschmutzung genutzt werden könnten.      
+
+Im Folgenden wird zunächst eine Übersicht der Kennwerte einzelner Variablen erstellt und visualisiert. Die Werte in dem Datensatz sind zeitabhängig. Deshalb werden diese als Zeitreihen visualisiert. Dadurch soll ein Einblick in den zeitlichen Verlauf und den Wertebereich der Daten ermöglicht werden. Dabei werden auch einige Teildatensätze genauer betrachtet. Hierfür wird der Datensatz zuerst angepasst. Dabei wird der Zeitstempel in ein lesbares Format konvertiert. Variablen, die konstante Einträge haben, werden aus dem Datensatz entfernt, da diese nicht für die Analysen relevant sind. Es werden die gesamten Daten des Rohdatensatzes betrachtet und die nicht konstanten Variablen und deren Kennwerte und Eigenschaften berechnet und visualisiert. In einem nächsten Schritt werden die Daten für eine Betrachtung des Betriebsverhaltens nach der Variable „running=1“ gefiltert und näher betrachtet. Dabei wird es auf die Unterschiede zu dem gesamten Datensatz verwiesen. Als nächstes wird dann ein Datensatz nur für die erste Pumpe im Tagesbetrieb betrachtet. Die Unterschiede in den Wertebereichen der Variablen und die Ausreißer (seltene Werte) werden dargestellt. Die deskriptive Datenanalyse wird abgeschlossen, indem die Zusammenhänge zwischen ausgewählten Variablen dargestellt und näher betrachtet werden. Die Datenqualität hinsichtlich fehlender Werte, Ausreißer und Abtastrate wird bewertet.     
+
+
+
+
+
+
+
+
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+#<img src="E:/20210507 DRTM/R_Codes/AERZEN_Logo_P540C.png" width="220px" style="position:absolute; #top:20px; right:20px;"/>
+
+
+
+library(pacman)
+library(data.table)
+library(dplyr)
+library(funModeling)
+library(stargazer)
+library(pastecs)
+library(mice)
+library(VIM)
+
+library(dplyr)
+library(corrplot)
+
+library(lattice)
+library(tidyverse)
+
+library(gridExtra)
+
+library(caret)
+
+
+library(leaps)
+library(lmtest)
+
+library(ggfortify)
+
+library(parallel)
+library(foreach)
+library(doParallel)
+
+library(psych)
+
+library(car)
+
+```
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+
+daten_tel <- fread("V:\\Aerzen_Digital_Systems\\24_0_AERconsult\\01_Kundenprojekte\\Herborner Pumpentechnik\\03_Projekt Datenpotentialanalyse\\Daten\\HPL_00006_Telemetry.csv")  
+
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+
+
+daten_tel[,`:=`(timestamp  = as.POSIXct(daten_tel$timestamp, origin="1970-01-01"))]   
+str(daten_tel$timestamp)
+
+min(daten_tel$timestamp)   #  "2022-06-02 09:41:43 CEST"
+max(daten_tel$timestamp)   #  "2022-09-09 23:59:56 CEST"
+
+### Die Variable "PUMP_ID" als Faktor abspeichern
+
+daten_tel$PUMP_ID <- as.factor(daten_tel$PUMP_ID)
+str(daten_tel)
+
+
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+
+
+## Datensatz auf die Pumpen aufteilen
+
+library(dplyr)
+daten_tel_1 <- daten_tel %>% filter(daten_tel$PUMP_ID == "1")
+dim(daten_tel_1)   # 856038     22
+
+daten_tel_2 <- daten_tel %>% filter(daten_tel$PUMP_ID == "2")
+dim(daten_tel_2)   # 856038     22
+
+
+
+
+```
+
+
+## Betrachtung der Telemetriedaten von Pumpe 1 und Pumpe 2       
+
+**_Bedeutung der Abkürzungen_**     
+
+| **q_zeros:**    |  Anzahl der Nullwerte             |
+| **p_zeros:**    |  Anteil der Nullwerte             |
+| **q_na:**       |  Anzahl der fehlenden Werte       |
+| **p_na:**       |  Anteil der fehlenden Werte       |  
+| **q_inf:**      |  Anzahl der unendlichen Werte     | 
+| **p_inf:**      |  Anteil der unendlichen Werte     |    
+| **type:**       |  Variablentyp                     |
+| **unique:**     |  Anzahl unterschiedlichen Werte   |       
+
+
+  
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+
+df_status_tel <- df_status(daten_tel)
+
+
+```
+**Bemerkungen:**    
+
+* Der Datensatz enthält keine fehlenden Werte
+
+* Der Datensatz hat folgende konstanten Variablen:
+device_name, manual_mode, pump_pressure_suction, set_rotational_speed, pump_pressure_calculated, pump_flowrate_measured und errorcode    
+
+Dies ist damit zu begründen, dass diese Variablen entweder nicht abgetastet wurden, nur konstante Einträge haben oder in dem gesamten Zeitraum nur ein einziges Ereignis aufgetreten ist. Da diese keine Varianz aufweisen, würden diese keinen Einfluss auf die Auswertungen / Analysen haben. Deshalb werden diese aus dem Datensatz in den nachfolgenden Schritten entfernt und nicht weiterbetrachtet. Zu beachten ist, dass bei den anderen Datensätzen, in denen diese Variablen unterschiedliche Werte haben, würden diese näher betrachtet und untersucht werden.              
+
+
+
+
+## Beschreibung der Variableneigenschaften        
+
+**_Bedeutung der Abkürzungen_**   
+
+| **min:**            |  Minimale Ausprägung der Variable     |  
+| **1st Qu.:**        |  1. Quantil                           |    
+| **median:**         |  Median                               |   
+| **mean:**           |  Mean                                 |  
+| **3st Qu.:**        |  3. Quantil                           |  
+| **max:**            |  Maximale Ausprägung der Variable     |  
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+# Die Eigenschaften der Variablen
+
+summary(daten_tel)
+
+
+#library(vtable)
+#vers <- sumtable(daten_tel,
+#                 summ=c('notNA(x)',
+#                        'min(x)',
+#                        'mean(x)',
+#                        'median(x)',
+#                        'max(x)',
+#                        'propNA(x)'))
+
+#vers
+
+```
+
+
+
+
+**Bemerkungen:**       
+
+* Die Datenaufzeichnung der enthaltenen Daten beginnt am 02.06.2022 um 09:41:43 Uhr und endet am 09.09.2022 um 23:59:56 Uhr. Die Pumpen sind 94,62 % der Zeit im Betrieb.    
+
+* Es sind einige Fehler im Laufe der Zeit aufgetreten. An der Variablen „error“ ist es erkennbar, dass in dem Datensatz etwa 6,43 % der Daten zu dem Ereignis gehören als die Pumpen (zusammen oder einzeln) eine Störung hatten. In dem vorliegenden Datensatz sind keine weiteren Informationen zu der Art und mögliche Ursache der Störungen vorhanden.     
+
+* Einige Variablen in dem Datensatz wurden nicht abgetastet:    
+“manual_mode”, “pump_pressure_suction”, “set_rotational_speed”, “pump_pressure_calculated”, “pump_flowrate_measured” und “errorcode”.      
+
+* Der Datensatz enthält Einträge für zwei Pumpen (PUMP_ID “1” und “2”). Diese haben die gleiche Anzahl an Werten (jeweils 856038 Einträge).     
+
+
+
+
+
+# Visuelle Darstellung der Variablen     
+
+
+
+
+**Beschreibung der Variablen:**       
+
+„running“: 	Pumpe läuft     
+„pump_energy“:	Energieverbrauch der Pumpe (kumulativ)     
+„pump_pressure_differential“:	Differenz aus druckseitigem und saugseitigem Druck (gemessen)    
+„act_rotational_speed“:	Drehzahl der Pumpe    
+„pump_flowrate_calculated“: 	Fördermenge der Pumpe (errechnet)     
+„shaft_power“:	Pumpenleistung (Wellenleistung)     
+„current“:	Stromstärke     
+„voltage“	Stromspannung    
+„internal_temperature“	Interne Temperatur       
+
+Nachfolgend werden die einzelnen Variablen, die nicht konstant sind, als Zeitreihen dargestellt. Diese geben als Ergänzung zu den oberen Statistiken einen guten Einblick in den Verlauf der Werte der einzelnen Merkmale. Außerdem werden die Merkmale der Variablen visualisiert. Anhand des Histogramms wird die Verteilung der Variable betrachtet. An denen ist es erkennbar, in welchen Wertebereichen die meisten Daten der Variablen liegen. Diese dienen dazu ein erstes Gefühl für die Daten zu bekommen. Die Boxplots geben nicht nur den Median (schwarze Linie), sondern auch die Mittelwerte (rote Punkte) in dem Datensatz an. Diese dienen unter anderem zur Veranschaulichung der Lage- und Streuungsmaßen. In denen werden aber auch die Ausreißer erkennbar. Damit bekommt man ebenfalls ein erstes Gefühl für die Daten.     
+
+
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+
+# konstante Variablen werden aus dem Datensatz entfernen
+
+
+daten_tel <- Filter(function(x) length(unique(x)) > 1, daten_tel)
+dim(daten_tel)    #  1712076      15
+
+
+```
+
+_Nicht konstante Variablen im Datensatz:_       
+
+In dem Datensatz sind nun die 15 nicht konstanten Variablen enthalten. Diese werden im Nachfolgenden näher betrachtet: "timestamp", "running", "pump_energy", "error", "pump_pressure_differential", "act_rotational_speed", "statusword", "pump_flowrate_calculated", "shaft_power", "current", "voltage", "operating_hours", "internal_temperature", "MSG_ID", "PUMP_ID"                   
+
+
+
+
+
+Da in dem Datensatz die Daten für 2 Pumpen enthalten sind, werden die Daten im ersten Schritt den Pumpen farblich zugeordnet.           
+
+### Betrieb der Pumpen          
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich aufgeteilt.
+
+#########################################
+
+
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=timestamp ,y=running))+ 
+    geom_point(aes(color = PUMP_ID))+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Pumpe läuft",
+         x = "Zeit", y = "Pumpe an")+
+    labs(color='Pumpe')
+
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$running))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    labs(title = "Verteilung",
+         x = "Pumpe Läuft", y = "Anzahl")+
+    labs(color='Pumpe')+
+   scale_fill_manual('Pumpe', values=c('#005e83','#f6c9aa'))
+
+#table(daten_tel$running, daten_tel$PUMP_ID)
+
+
+################################################
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= running))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Pumpe läuft", y = "Pumpe an", x="Pumpe")+
+    labs(fill='Pumpe')+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- (p1 / (p2 + p3)) 
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften ("running") - gesamt'
+)
+
+
+
+
+
+```
+
+
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+
+# Gesamter Datensatz (Pumpen im Betrieb)  
+
+
+names(daten_tel)
+
+daten_tel_betr <- daten_tel %>% filter(daten_tel$running == 1 &
+                                         daten_tel$act_rotational_speed >= 748)
+#dim(daten_tel_betr)   # 1619756      15
+
+#table(daten_tel$act_rotational_speed)
+
+
+#dim(daten_tel)
+
+#summary(daten_tel_betr)
+
+
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich aufgeteilt.
+
+#########################################
+
+
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=timestamp ,y=running))+ 
+    geom_point(aes(color = PUMP_ID))+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Pumpe läuft",
+         x = "Zeit", y = "Pumpe an")+
+    labs(color='Pumpe')
+
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$running))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    labs(title = "Verteilung",
+         x = "Pumpe Läuft", y = "Anzahl")+
+    labs(color='Pumpe')+
+   scale_fill_manual('Pumpe', values=c('#005e83','#f6c9aa'))
+
+#table(daten_tel_betr$running, daten_tel_betr$PUMP_ID)
+
+
+################################################
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= running))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Pumpe läuft", y = "Pumpe an", x="Pumpe")+
+    labs(fill='Pumpe')+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- (p1 / (p2 + p3)) 
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften ("running") - Betrieb'
+)
+
+
+
+
+
+```
+
+
+
+_Beobachtung:_     
+
+Es ist eindeutig erkennbar, dass die beiden Pumpen 94,62 % der Zeit eingeschaltet sind. Die Werte “0” kennzeichnen den Zustand der Pumpe, wenn diese ausgeschaltet / nicht im Betrieb ist. Solche Werte werden in diesem Datensatz als Ausreißer bewertet, da diese sehr unterrepräsentiert sind. Dennoch können diese (je nach Fragestellung) für die Analyse wichtig sein, weil sie u.a. die Häufigkeit und Dauer der Reinigung widerspiegeln. Damit der Zusammenhang zwischen den Variablen genauer untersucht werden kann, wurden diese erstmal aus dem Datensatz entfernt. Die andere Graphik zeigt, dass in dem gefilterten Datensatz die Daten nur für die laufende Pumpen enthält.           
+
+
+
+
+### Energieverbrauch der Pumpen     
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=timestamp ,y=pump_energy))+ 
+    geom_point(aes(color = PUMP_ID))+
+    scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Energieverbrauch",
+         x = "Zeit", y = "kWh")+
+    labs(color='Pumpe')
+#library(plotly)
+#ggplotly(p1)
+# Histogramm
+
+
+#p2 <- ggplot(data = daten_tel, aes(x=daten_tel$running))+ 
+#    geom_histogram(aes(fill=PUMP_ID))+
+#    labs(title = "Verteilung",
+#         x = "Pumpe Läuft", y = "Anzahl")+
+#    labs(color='Pumpe')+
+#   scale_fill_manual('Pumpe', values=c('#005e83','#f6c9aa'))
+
+
+
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$pump_energy))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Energieverbrauch", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$pump_energy, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= pump_energy))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Energieverbrauch", y = "kWh", x="Pumpe")+
+    labs(fill ='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("pump_energy") - gesamt'
+)
+
+
+
+
+
+```
+
+
+
+
+
+
+_Beobachtung:_      
+
+Es ist auffällig, dass die beiden Pumpen unterschiedlich viel Energie/Strom verbrauchen. Dabei verbraucht die erste Pumpe (“PUMP_ID”=1) immer mehr Energie als die zweite. Das liegt an der unterschiedlichen Anbringung der Pumpen an das Rohrsystem so kommt es zu den Unterschieden in den Verlusten zwischen den Pumpen. Die Werte der Variablen nehmen in dem Zeitverlauf immer zu, d.h. diese sind kumulativ. Dennoch sind in der Variable 81.154 Null-Werte enthalten. Das sind etwa 4,74 % der Daten. Diese werden in dem Datensatz als Ausreißer eingestuft. Die Nullwerte in dieser Variablen kommen nicht von der Messung. Vermutlich kommen diese durch Fehlermessung, Übertragungsfehler oder Pumpenfehler zum Stande. Sollte es so sein, muss überlegt werden, wie man damit umgehen muss.                
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$pump_energy))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Energieverbrauch",
+         x = "Zeit", y = "kWh")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$pump_energy))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Energieverbrauch", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$pump_energy, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= pump_energy))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Energieverbrauch", y = "kWh", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("pump_energy") - Betrieb'
+)
+
+
+
+
+
+```
+
+_Beobachtung:_      
+
+So wie bei dem Gesamtdatensatz ist es auffällig, dass die beiden Pumpen unterschiedlich viel Energie/Strom verbrauchen.  Dabei verbraucht die erste Pumpe ("PUMP_ID"=1) im Mittel mehr Energie als die zweite. Es ist auffällig, dass es bei den laufenden Pumpen keine Nullwerte bei dieser Variable  enthalten sind.    
+
+
+
+
+
+### Differenzdruck der Pumpe    
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#   act_rotational_speed   pump_flowrate_calculated   shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+
+
+p1 <- ggplot(data = daten_tel, aes(x=daten_tel$timestamp ,y=daten_tel$pump_pressure_differential))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Differenzdruck der Pumpe",
+         x = "Zeit", y = "Bar")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$pump_pressure_differential))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Differenzdruck der Pumpe", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$pump_pressure_differential, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= pump_pressure_differential))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",    # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Differenzdruck der Pumpe", y = "Bar", x="Pumpe")+
+    labs(fill='Pumpe')
+
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("pump_pressure_differential") - gesamt'
+)
+
+
+
+
+
+```
+
+_Beobachtung:_    
+
+An der Visualisierung der Ausprägungen insbesondere an dem Histogramm und Kennwerten des Differenzdrucks der Pumpen erkennt man eindeutig, dass diese hauptsächlich bei den 3 verschiedenen Lastzyklen laufen. Die drei Betriebspunkte sind "0" (die Pumpe ist aus), in dem Bereich um 0,35 Bar und in dem Bereich um den Wert 0,8 Bar. Anhand der Visualisierung ist es erkennbar, dass die Werte der Variable für die beiden Pumpen (nach Pumpen aufgelöst) sehr ähnlich verteilt sind.         
+
+
+
+
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#   act_rotational_speed   pump_flowrate_calculated   shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$pump_pressure_differential))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Differenzdruck der Pumpe",
+         x = "Zeit", y = "Bar")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$pump_pressure_differential))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Differenzdruck der Pumpe", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$pump_pressure_differential, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= pump_pressure_differential))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Differenzdruck der Pumpe", y = "Bar", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("pump_pressure_differential") - Betrieb'
+)
+
+
+
+
+
+```
+
+_Beobachtung:_    
+
+Ähnlich wie in dem gesamten Datensatz sind auch im Betriebszustand der Pumpen je zwei verschiedene Betriebsarten zu erkennen. Es wird sowohl an dem Zeitreihenplot als auch an der zweigipfligen Verteilung im Histogramm eindeutig.     
+
+
+
+
+
+
+
+### Aktuelle Drehzahl     
+
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+#      pump_flowrate_calculated   shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=daten_tel$timestamp ,y=daten_tel$act_rotational_speed))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Aktuelle Drehzahl",
+         x = "Zeit", y = "U/min")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$act_rotational_speed))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Aktuelle Drehzahl", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$act_rotational_speed, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= act_rotational_speed))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Aktuelle Drehzahl", y = "U/min", x="Pumpe")+
+    labs(fill='Pumpe')
+
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("act_rotational_speed") - gesamt'
+)
+
+
+
+```
+
+_Beobachtung:_     
+
+In der Visualisierung ist es eindeutig erkennbar, dass die Drehzahlwerte um zwei Punkte konzentriert sind. Das sind 748 U/min und 1197 U/min. Das deutet ebenfalls auf die unterschiedliche Betriebspunkte der Pumpen hin.   
+
+
+
+
+
+        
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+#      pump_flowrate_calculated   shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$act_rotational_speed))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Aktuelle Drehzahl",
+         x = "Zeit", y = "U/min")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$act_rotational_speed))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Aktuelle Drehzahl", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$act_rotational_speed, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= act_rotational_speed))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Aktuelle Drehzahl", y = "U/min", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("act_rotational_speed") - Betrieb'
+)
+
+#dim(daten_tel_betr)   # 1619756      15
+
+#table(daten_tel_betr$act_rotational_speed)
+
+
+```
+
+_Beobachtung:_     
+
+In diesen Graphen ist es eindeutig, dass die Werte der Drehzahl um zwei Werte konzentriert sind. Das sind 748 U/min und 1997 U/min. Das deutet ebenfalls auf die unterschiedliche Betriebsarten der Pumpen hin. Dabei ist zu vermerken, dass die Pumpen bei den höheren Drehzahlen etwa 943.526 (58 %) Datenpunkten haben, für die Drehzahl 748 U/min aber nur 675.928 (41 %) Einträge gibt.              
+
+
+
+
+
+### Volumenstrom (berechnet)      
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#         shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=daten_tel$timestamp ,y=daten_tel$pump_flowrate_calculated))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Volumenstrom (berechnet)",
+         x = "Zeit", y = "l/min")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$pump_flowrate_calculated))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Volumenstrom (berechnet)", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$pump_flowrate_calculated, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= pump_flowrate_calculated))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Volumenstrom (berechnet)", y = "l/min", x="Pumpe")+
+    labs(fill='Pumpe')
+
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("pump_flowrate_calculated") - gesamt'
+)
+
+
+
+```
+
+_Beobachtung:_   
+
+Die Variable hat ebenfalls eine mehrgipflige Verteilung, was auf unterschiedliche Betriebspunkte, unter denen die Pumpe genutzt wird, hindeutet. Das ist sowohl an dem Zeitreihenplot als auch an der Verteilung (Histogramm) eindeutig erkennbar. Außerdem gibt es eine geringe Anzahl an Werten, die zwischen den verschiedenen Betriebsarten liegen. Die einzelnen Gruppen werden weiter unten nach den verschiedenen Betriebspunkten untersucht.           
+
+
+
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#         shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$pump_flowrate_calculated))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Volumenstrom (berechnet)",
+         x = "Zeit", y = "l/min")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$pump_flowrate_calculated))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Volumenstrom (berechnet)", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$pump_flowrate_calculated, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= pump_flowrate_calculated))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Volumenstrom (berechnet)", y = "l/min", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("pump_flowrate_calculated") - Betrieb'
+)
+
+
+
+```
+
+_Beobachtung:_   
+
+Die Variable hat hier eine zweigipflige Verteilung mit einigen wenigen Ausreißern, was auf unterschiedliche Betriebsarten, unter denen die Pumpe genutzt wird, hindeutet. Es ist auch "Verrauschung" in den Daten erkennbar. Diese kommt durch die An- und Auslauf-Phasen während des Betriebs der Pumpen zu Stande.      
+
+
+
+
+### Pumpenleistung       
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#               current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=daten_tel$timestamp ,y=daten_tel$shaft_power))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Pumpenleistung",
+         x = "Zeit", y = "Watt")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$shaft_power))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Pumpenleistung", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$shaft_power, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= shaft_power))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Pumpenleistung", y = "Watt", x="Pumpe")+
+    labs(fill='Pumpe')
+
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften ("shaft_power") - gesamt'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+Sowohl Mittelwerte als auch Mediane der Pumpenleistung unterscheiden sich. Dabei haben die Beiden von der 1. Pumpe eindeutig größere Werte. Die Verteilung von dieser Variable ist ebenfalls mehrgipflig. Außerdem ist es deutlich, dass die erste Pumpe sowohl im Mittel als auch im Maxima eindeutig höhere Werte aufweist als die zweite Pumpe.    
+
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#               current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$shaft_power))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Pumpenleistung",
+         x = "Zeit", y = "Watt")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$shaft_power))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Pumpenleistung", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$shaft_power, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= shaft_power))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Pumpenleistung", y = "Watt", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften ("shaft_power") - Betrieb'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+Die Verteilung ist auch bei der Pumpenleistung entsprechend den Tages- und Nachtphasen für den Betrieb der Pumpen zweigipflig. Außerdem ist es deutlich, dass die erste Pumpe sowohl im Mittel als auch im Maxima höhere Werte aufweist als die zweite Pumpe. Es wird sowohl an dem Zeitreihenplot als auch an dem Histogramm und Boxplot eindeutig.    
+
+
+
+
+
+
+### Stromstärke     
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                         voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=daten_tel$timestamp ,y=daten_tel$current))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Stromstärke",
+         x = "Zeit", y = "Ampere")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$current))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Stromstärke", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$current, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= current))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Stromstärke", y = "Ampere", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("current") - gesamt'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+So wie bei der Pumpenleistung, ist es auch bei der Stromstärke die mehrgipflige Verteilung mit den durchschnittlich größeren Werten der ersten Pumpe erkennbar.  Die meisten Werte für die 1. Pumpe liegen auch hier in einem höheren Wertebereich als für die Pumpe 2. Es wird sowohl an der Verteilung (Histogram) als auch an dem Boxplot eindeutig.          
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                         voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$current))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Stromstärke",
+         x = "Zeit", y = "Ampere")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$current))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Stromstärke", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$current, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= current))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Stromstärke", y = "Ampere", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("current") - Betrieb'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+Bei dem Betrieb der Pumpen ist auch bei der Stromstärke die zweigipflige Verteilung mit den durchschnittlich größeren Werten der ersten Pumpe erkennbar. 
+
+
+
+
+### Stromspannung     
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                             internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=daten_tel$timestamp ,y=daten_tel$voltage))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Stromspannung",
+         x = "Zeit", y = "Volt")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$voltage))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Stromspannung", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$voltage, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= voltage))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Stromspannung", y = "Volt", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("voltage") - gesamt'
+)
+
+
+```
+
+_Beobachtung:_    
+
+Genauso wie bei der Stromstärke konzentrieren sich die Werte der Stromspannung in drei Bereichen. Die meisten Werte liegen bei 287 Volt für die 1. Pumpe und bei 284 Volt für die Pumpe 2. Der andere Bereich liegt bei 180 Volt für die 1. Pumpe und bei 175 Volt für die 2. Pumpe. Der dritte und mit der kleinsten Anzahl an Punkten liegt um den Null für die beiden Pumpen. Dabei ist deren Anteil mit etwa 5,38 % so gering, dass diese im Boxplot als Ausreißer markiert werden. 
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                             internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$voltage))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Stromspannung",
+         x = "Zeit", y = "Volt")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$voltage))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Stromspannung", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$voltage, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= voltage))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Stromspannung", y = "Volt", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften ("voltage") - Betrieb'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+Werte der Stromspannung  der beiden Pumpen haben eine geringere Streuung zwischen den zwei Betriebsweisen im Vergleich zu der Stromstärke. Diese konzentrieren sich für eine Betriebsart der Pumpe 1 zwischen 285 Volt und 289 Volt  und für die andere Betriebsart zwischen 179 Volt und 183 Volt. Für die zweite Pumpe im Tagesbetrieb liegen die meisten Werte der Stromspannung zwischen 282 Volt und 286 Volt. Bei der nächtlichen Betriebsart der zweiten Pumpe liegen die meisten Werte im Bereich zwischen 175 Volt und 179 Volt.       
+
+
+
+### Interne Temperatur      
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                             
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel, aes(x=daten_tel$timestamp ,y=daten_tel$internal_temperature))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Interne Temperatur",
+         x = "Zeit", y = "°C")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel, aes(x=daten_tel$internal_temperature))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Interne Temperatur", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel$internal_temperature, daten_tel$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel, aes(x=PUMP_ID, y= internal_temperature))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Interne Temperatur", y = "°C", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften ("internal_temperature") - gesamt'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+Die Werte der internen Temperatur haben ebenfalls eine mehrgipflige Verteilung. Noch zu vermerken ist, dass die zweite Pumpe höhere Ausprägungen aufweist als die erste Pumpe. Für die interne Temperatur der beiden Pumpen ist es erkennbar, dass mehr Punkte in dem höheren Bereich für die Pumpe 2 liegen. Die Werte um den Null werden dabei für die beiden Pumpen als Ausreißer interpretiert. Das deutet aber auch darauf hin, dass die Pumpen zu den Zeiten außer Betrieb waren und haben keine plausiblen Werte geliefert, da unter vorliegenden Umständen können die Temperaturwerte nicht Null sein.        
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                             
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$timestamp ,y=daten_tel_betr$internal_temperature))+ 
+    geom_point(aes(color = PUMP_ID),size = 0.5)+
+   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Interne Temperatur",
+         x = "Zeit", y = "°C")+
+    labs(color='Pumpe')
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_betr, aes(x=daten_tel_betr$internal_temperature))+ 
+    geom_histogram(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    labs(title = "Verteilung",
+         x = "Interne Temperatur", y = "Anzahl")+
+    labs(fill='Pumpe')
+
+#table(daten_tel_betr$internal_temperature, daten_tel_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(data = daten_tel_betr, aes(x=PUMP_ID, y= internal_temperature))+ 
+    geom_boxplot(aes(fill=PUMP_ID))+
+    scale_fill_manual(values=c('#005e83','#f6c9aa'))+
+    stat_summary(fun.y=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+    stat_summary(fun = mean, geom = "text", col = "red",     # Add text to plot
+               vjust = 1.5, aes(label = paste("Mean:", round(..y.., digits = 1))))+
+    labs(title = "Interne Temperatur", y = "°C", x="Pumpe")+
+    labs(fill='Pumpe')
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften ("internal_temperature") - Betrieb'
+)
+
+
+```
+
+_Beobachtung:_    
+
+In dem gefilterten Datensatz sind keine Nullwerte für die interne Temperatur enthalten. Die Verteilung ist zweigipflig. Auffällig ist, dass die 2. Pumpe (im Mittel) höhere Werte aufweist als die erste. Im Tagesbetrieb liegen die meisten Datenpunkte für die Pumpe 1 in Bereich zwischen 50°C und 51°C und für die 2 Pumpe im Bereich zwischen 51°C und 52°C. In dem Nachbetrieb sind es für die Pumpe 1 etwa 41°C und für die Pumpe 2 liegen die meisten Werte der internen Temperatur zwischen 41°C und 42°C.            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Daten der Tageswerte für Pumpe 1             
+
+In der oberen Untersuchung wurde festgehalten, dass es in dem Gesamtdatensatz die Daten der zwei Pumpen enthalten sind. Außerdem ist es deutlich geworden, dass die beiden Pumpen mehrere Betriebszustände haben und auch, dass die Wertebereiche und die Verteilungen der Variablen für die zwei Pumpen unterschiedlich sind aber die Pumpe 1 und 2 ein ähnliches Verhalten aufweisen.      
+Aus diesen Gründen werden die Daten nachfolgend nur für die 1. Pumpe während diese am Tag im Betrieb war, betrachtet. Dies wird deshalb gemacht, um die Zusammengänge zwischen den einzelnen Variablen anhand der Werte eindeutiger interpretieren zu können.     
+
+Als erstes wird der Datensatz vorbereitet. Die Daten werden nach den Werten der Variablen "PUMP_ID" = 1 (Daten der 1. Pumpe), "running" = 1 (Pumpe läuft) und "act_rotational_speed" = 1197 (aktuelle Drehzahl der Pumpe ist 1197) gefiltert. Dann werden die Eigenschaften der einzelnen Variablen zusammengefasst und deren Kennwerte berechnet.           
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+#names(daten_tel_1)
+
+daten_tel_1_betr <- daten_tel_1 %>% filter(daten_tel_1$running == 1 &
+                                         daten_tel_1$act_rotational_speed == 1197)
+
+
+
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+
+# konstante Variablen werden aus dem Datensatz entfernen
+
+
+daten_tel_1_betr <- Filter(function(x) length(unique(x)) > 1, daten_tel_1_betr)
+dim(daten_tel_1_betr)    #  471670     12
+
+names(daten_tel_1_betr)
+```
+
+
+
+
+## Beschreibung der Variableneigenschaften und Kennwerte                 
+
+
+
+**_Bedeutung der Abkürzungen_**   
+
+| **q_zeros:**    |  Anzahl der Nullwerte             |
+| **p_zeros:**    |  Anteil der Nullwerte             |
+| **q_na:**       |  Anzahl der fehlenden Werte       |
+| **p_na:**       |  Anteil der fehlenden Werte       |  
+| **q_inf:**      |  Anzahl der unendlichen Werte     | 
+| **p_inf:**      |  Anteil der unendlichen Werte     |    
+| **type:**       |  Variablentyp                     |
+| **unique:**     |  Anzahl unterschiedlichen Werte   |       
+
+
+  
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+
+df_status_tel_1_betr <- df_status(daten_tel_1_betr)
+
+
+```
+**Bemerkungen:**    
+
+* Der Datensatz enthält keine fehlenden Werte      
+* Der Teildatensatz hat genau wie der Gesamtdatensatz einige konstanten Variablen:      
+   device_name, running, manual_mode, pump_pressure_suction, set_rotational_speed, pump_pressure_calculated, act_rotational_speed, pump_flowrate_measured,  errorcode und PUMP_ID      
+
+Wegen der Filterung der Daten sind noch zwei weitere Variablen in dem Datensatz, die konstante Werte haben. Das sind "act_rotational_speed" und "PUMP_ID".      
+
+
+
+
+**_Bedeutung der Abkürzungen_**   
+
+| **min:**            |  Minimale Ausprägung der Variable     |  
+| **1st Qu.:**        |  1. Quantil                           |    
+| **median:**         |  Median                               |   
+| **mean:**           |  Mean                                 |  
+| **3st Qu.:**        |  3. Quantil                           |  
+| **max:**            |  Maximale Ausprägung der Variable     |  
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+# Die Eigenschaften der Variablen
+
+summary(daten_tel_1_betr)
+
+
+```
+
+
+
+
+
+## Visualisierung der Werte (1. Pumpe am Tag)       
+
+Nachfolgend werden die Daten von der Pumpe 1 im Tagesbetrieb sowohl als Zeitreihen als auch die Eigenschaften und Kennwerte visualisiert.   
+Dies dient dazu einen besseren Einblick und Gefühl für die Daten zu bekommen.      
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$timestamp ,y=daten_tel_1_betr$pump_energy))+ 
+    geom_point(col="#005e83")+
+    labs(title = "Energieverbrauch",
+         x = "Zeit", y = "kWh")
+#,size = 0.5)+
+#   scale_colour_manual(values=c('#005e83','#f6c9aa'))+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_energy))+ 
+    geom_histogram(col="#005e83", fill="#005e83")+
+    labs(title = "Verteilung",
+         x = "Energieverbrauch", y = "Anzahl")
+
+#table(daten_tel_1_betr$pump_energy, daten_tel_1_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(daten_tel_1_betr, aes(y = pump_energy)) +
+  geom_boxplot(fill="#005e83")+
+  labs(title = "Energieverbrauch", y = "kWh", x="Pumpe 1")+
+  theme(axis.text.x = element_blank())
+
+
+
+
+
+
+#p3 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_energy))+ 
+#    geom_boxplot()+
+#    stat_summary(fun.x=mean, geom="point", shape=20, size=5, color="red", fill="red") +
+#    labs(title = "Energieverbrauch", y = "kWh")
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften Tagesbetrieb der 1. Pumpe ("pump_energy")'
+)
+
+
+
+```
+
+_Beobachtung:_      
+
+Die Werte nähern sich einer Gleichverteilung an. Das deutet darauf hin, dass die Pumpe täglich gleich viel in dem abgetasteten Zeitraum im Betrieb ist.      
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#   act_rotational_speed   pump_flowrate_calculated   shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_1_betr, aes(x=timestamp ,y=pump_pressure_differential))+ 
+    geom_point(col="#005e83")+
+    labs(title = "Differenzdruck der Pumpe",
+         x = "Zeit", y = "Bar")
+
+
+
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_pressure_differential))+ 
+    geom_histogram(col="#005e83", fill="#005e83")+
+    labs(title = "Verteilung",
+         x = "Differenzdruck der Pumpe", y = "Anzahl")
+
+#table(daten_tel_1_betr$pump_pressure_differential, daten_tel_1_betr$PUMP_ID)
+
+
+## boxplot
+
+p3 <- ggplot(daten_tel_1_betr, aes( y = pump_pressure_differential)) +
+  geom_boxplot(fill="#005e83")+
+  labs(title = "Differenzdruck", y = "Bar", x="Pumpe 1")+
+  theme(axis.text.x = element_blank())
+
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften Tagesbetrieb der 1. Pumpe ("pump_pressure_differential")'
+)
+
+
+
+
+
+```
+
+_Beobachtung:_    
+
+An der Visualisierung ist es erkennbar, dass die Verteilung dieser Variablen linksschief ist. Es deutet darauf hin, dass es für die höhere Werte deutlich weniger Einträge vorhanden sind als für die niedrigeren. Daas bestätigt unter anderem auch, dass der Median (0.77716 bar) größer als der arithmetische Mittel (0.75413 bar) ist.       
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#         shaft_power      current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$timestamp ,y=daten_tel_1_betr$pump_flowrate_calculated))+ 
+    geom_point(col="#005e83")+
+    labs(title = "Volumenstrom (berechnet)",
+         x = "Zeit", y = "l/min")
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_flowrate_calculated))+ 
+    geom_histogram(col="#005e83", fill="#005e83")+
+    labs(title = "Verteilung",
+         x = "Volumenstrom (berechnet)", y = "Anzahl")
+
+#table(daten_tel_1_betr$pump_flowrate_calculated, daten_tel_1_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(daten_tel_1_betr, aes( y = pump_flowrate_calculated)) +
+  geom_boxplot(fill="#005e83")+
+  labs(title = "Volumenstrom", y = "l/min", x="Pumpe 1")+
+  theme(axis.text.x = element_blank())
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften Tagesbetrieb der 1. Pumpe ("pump_flowrate_calculated")'
+)
+
+
+
+```
+
+_Beobachtung:_   
+
+Die Verteilung der Variablen "pump_flowrate_calculated" ist hingegen rechtsschief. Das wird auch dadurch belegt, dass der Median (3147.4 l/min) kleiner als der Mittelwert (3216.0 l/min) ist.           
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#               current          voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$timestamp ,y=daten_tel_1_betr$shaft_power))+ 
+    geom_point(col="#005e83")+
+    labs(title = "Pumpenleistung",
+         x = "Zeit", y = "Watt")
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$shaft_power))+ 
+    geom_histogram(col="#005e83", fill="#005e83")+
+    labs(title = "Verteilung",
+         x = "Pumpenleistung", y = "Anzahl")
+
+#table(daten_tel_1_betr$shaft_power, daten_tel_1_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(daten_tel_1_betr, aes(y = shaft_power)) +
+  geom_boxplot(fill="#005e83")+
+  labs(title = "Pumpenleistung", y = "Watt", x="Pumpe 1")+
+  theme(axis.text.x = element_blank())
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften Tagesbetrieb der 1. Pumpe ("shaft_power")'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+Die Verteilung ist steil mit einer Linksschiefe. D.h. die meisten Werte sind um einen Bereich 4.500 Watt konzentriert. Es sind auch einige Ausreißer, die kleinere Werte haben, vorhanden.     
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                         voltage    internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$timestamp ,y=daten_tel_1_betr$current))+ 
+    geom_point(col="#005e83")+
+    labs(title = "Stromstärke",
+         x = "Zeit", y = "Ampere")
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$current))+ 
+    geom_histogram(col="#005e83", fill="#005e83")+
+    labs(title = "Verteilung",
+         x = "Stromstärke", y = "Anzahl")
+
+#table(daten_tel_1_betr$current, daten_tel_1_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(daten_tel_1_betr, aes(y = current)) +
+  geom_boxplot(fill="#005e83")+
+  labs(title = "Stromstärke", y = "Ampere", x="Pumpe 1")+
+  theme(axis.text.x = element_blank())
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften Tagesbetrieb der 1. Pumpe ("current")'
+)
+
+
+
+```
+
+_Beobachtung:_    
+
+So wie bei Pumpenleistung, ist die Verteilung von der Stromstärke steil mit einer Linksschiefe. D.h. die meisten Werte sind um einen Bereich 9,6 Ampere konzentriert. Es sind auch einige Ausreißer, die kleinere Werte haben, in dem Teildatensatz vorhanden. Diese kommen vermutlich von den An- und Auslaufphasen der Pumpe.       
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                             internal_temperature
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$timestamp ,y=daten_tel_1_betr$voltage))+ 
+    geom_point(col="#005e83")+
+    labs(title = "Stromspannung",
+         x = "Zeit", y = "Volt")
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$voltage))+ 
+    geom_histogram(col="#005e83", fill="#005e83")+
+    labs(title = "Verteilung",
+         x = "Stromspannung", y = "Anzahl")
+
+#table(daten_tel_1_betr$voltage, daten_tel_1_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(daten_tel_1_betr, aes(y = voltage)) +
+  geom_boxplot(fill="#005e83")+
+  labs(title = "Stromspannung", y = "Volt", x="Pumpe 1")+
+  theme(axis.text.x = element_blank())
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+  title = 'Ausprägungen und Eigenschaften Tagesbetrieb der 1. Pumpe ("voltage")'
+)
+
+
+
+```
+
+_Beobachtung:_      
+
+Die Werte der Stromspannung haben in diesem Teildatensatz einen kleinen Wertebereich. Die Ausprägungen sind zwischen 275 Volt und 295 Volt. 
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+# Da es in dem Datensatz die Daten für 2 Pumpen gespeichert wurden, wird bei der Visualisierung 
+# der Daten im 1. Schritt nach der Pumpen ID farblich abgetrennt.
+
+#                             
+
+library(ggplot2)
+library(patchwork)
+
+# Zeitreihe
+
+p1 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$timestamp ,y=daten_tel_1_betr$internal_temperature))+ 
+    geom_point(col="#005e83")+
+    labs(title = "Interne Temperatur FU",
+         x = "Zeit", y = "°C")
+
+
+# Histogramm
+
+p2 <- ggplot(data = daten_tel_1_betr, aes(x=daten_tel_1_betr$internal_temperature))+ 
+    geom_histogram(col="#005e83", fill="#005e83")+
+    labs(title = "Verteilung",
+         x = "Interne Temperatur", y = "Anzahl")
+
+#table(daten_tel_1_betr$internal_temperature, daten_tel_1_betr$PUMP_ID)
+
+
+## boxplot
+
+
+p3 <- ggplot(daten_tel_1_betr, aes(y = internal_temperature)) +
+  geom_boxplot(fill="#005e83")+
+  labs(title = "Interne Temperatur", y = "°C", x="Pumpe 1")+
+  theme(axis.text.x = element_blank())
+
+
+#Diagramme neben Titel, Untertitel und Beschriftungen anzeigen
+patchwork <- p1 / (p2 + p3)
+
+patchwork + plot_annotation(
+   title = 'Ausprägungen und Eigenschaften Tagesbetrieb der 1. Pumpe ("internal_temperature")'
+)
+
+
+
+```
+
+_Beobachtung:_      
+
+Die meisten Werte der internen Temperatur liegen für den Tagesbetrieb zwischen 50°C und 51°C. Dabei ist es erkennbar, dass in den Zeiten, als die Pumpe ausgeschaltet wird, die Wette langsam sinken und nach dem Einschalten wieder langsan ansteigen.        
+
+
+
+
+
+
+# Untersuchung der Zusammenhänge      
+
+
+Als nächstes werden die Variablen ausgewählt, deren Zusammenhang zu den anderen Variablen näher untersucht werden soll. Das sind insbesondere nicht konstante oder kategorielle Variablen.       
+
+Desweiteren wird ein Teildatensatz, der die Daten der ersten Pumpe im Tagesbetrieb wiedergibt, betrachtet. Es werden die Korrelationen in einem Korrelationsplot veranschaulicht.     
+
+Schließlich geht es um die Darstellung und Bewertung der Zusammenhänge jeweils zwischen zwei Variablen. Diese werden zuerst visualisiert und auf die Ausreißer/seltene Werte geprüft. Sollten diese vorhanden sein, werden sie vor der Durchführung der Korrelationsanalyse aus den Daten entfernt. Da diese die Ergebnisse stark beeinflussen können.    
+
+Die Zusammenhänge zwischen den Variablen werden nur für die Pumpe 1 untersucht, da die beiden Pumpen ein ähnliches Verhalten in den Datenverlauf haben. Dabei werden nur die Daten betrachtet als die Pumpe im Betrieb war.        
+
+
+
+
+## Mit Ausreißern          
+
+
+
+
+  
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+
+
+## pump_pressure_differential, act_rotational_speed, pump_flowrate_calculated, shaft_power, current, voltage, internal_temperature
+
+
+### nur nummerische Variablen auswählen
+
+#names(daten_tel_1_betr)
+#dim(daten_tel_1_betr)      # 471670     12
+summary(daten_tel_1_betr)
+
+daten_tel_1_betr_nam <- daten_tel_1_betr %>% rename(Zeit = timestamp, Energieverbrauch = pump_energy, fehler = error, Diff.druck = pump_pressure_differential, Vol.strom = pump_flowrate_calculated,  Leistung = shaft_power, Stromstärke = current, Spannung = voltage, Betriebsstunden = operating_hours, Temperatur = internal_temperature)
+
+#names(daten_tel_1_betr_nam)
+
+daten_tel_betr_1_cor_nam <- daten_tel_1_betr_nam[,c(4,6,7,8,9,11)]
+
+#dim(daten_tel_betr_1_cor_nam)   # 471670      6
+
+
+#library(corrplot)
+#corrplot(cor(daten_tel_betr_1_cor_nam))
+
+
+library(corrplot)
+corrplot(cor(daten_tel_betr_1_cor_nam, method = "spearman"))
+
+
+library(GGally)
+#p <- ggpairs(daten_tel_betr_1_cor_nam) 
+#p
+
+
+lowerFn <- function(data, mapping) {
+  p <- ggplot(data = data, mapping = mapping)+
+    geom_point(colour = "#005e83") +
+    geom_smooth(color = "red") +
+    theme(axis.title = element_text(size = 0.2))    
+   # theme(axis.text=element_text(size=5))+
+  #  theme(axis.text=element_text(size=5))+ 
+  #  theme(axis.title=element_text(size=14,face="bold"))
+  p
+}
+
+
+pp <- ggpairs(
+  daten_tel_betr_1_cor_nam, lower = list(continuous = wrap(lowerFn)),
+  diag = list(continuous = wrap("barDiag", fill = "#005e83")),
+  upper = list(continuous = wrap("cor"))
+)
+
+pp
+
+
+
+
+
+
+
+
+
+
+```  
+
+
+Wie man dem Korrelationsplot entnehmen kann, weisen einige Variablen einen starken Zusammenhang auf (Volumenstrom und Differenzdruck, Leistung und Stromstärke, leistung und Stromspannung, Stromspannung und Stromstärke). Andere hingegen haben nur sehr geringe korrelationswerte (Interne Temperatur mit allen anderen Variablen).      
+
+
+
+Damit die Zusammenhänge zwischen jeweils zwei Variablen genauer untersucht werden können, werden diese nachfolgend in den einzelnen Scatterplots visualisiert und beschrieben.    
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s1 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_flowrate_calculated, y=daten_tel_1_betr$pump_pressure_differential))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Differentialdruck",
+         x = "l/min", y = "bar")
+
+s1
+
+
+```
+_Beobachtung:_   
+
+
+An dem oberen Plot ist es eindeutig erkennbar, dass die Variablen „pump_pressure_differential“ und „pump_flowrate_calculated“ einen quadratischen und negativen Zusammenhang aufweisen. Das heißt insbesondere, dass bei den steigenden Werten des Differentialdruckes die Werte des Volumenstromes absinken. Außerdem je höher ist der Differentialdruck desto steiler ist die Steigung der Regressionslinie (rot). Also ist der Abfall des berechneten Volumenstroms ist größer. Der Korrelationskoeffizient beträgt -0,984 und ist dabei statistisch signifikant. Das heißt die beiden Variablen korrelieren sehr stark miteinander.    
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+
+s2 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_pressure_differential, y=daten_tel_1_betr$shaft_power))+
+  geom_point(col="#005e83")+
+  ylim(0, 6000)+
+  geom_smooth(col="red")+
+      labs(title = "Differentialdruck vs Leistung",
+         x = "bar", y = "Watt")
+
+s2
+
+
+```
+
+_Beobachtung:_   
+
+
+Der obere Plot stellt die Abhängigkeit der Variablen Pumpenleistung von dem Differentialdruck der Pumpe dar. Die Regressionslinie der beiden Variablen hat die Form eines Polynoms. Auffällig dabei ist, dass sich die meisten Punkte in einer Punktewolke konzentrieren und dass es viele einzelne Ausreißer vorhanden sind.      
+
+Für diese beiden Variablen beträgt der Korrelationskoeffizient 0,636. Dieser Wert deutet auf einen Zusammenhang hin, der aber nicht sehr stark ist. Dabei ist es zu beachten, dass es viele einzelne Ausreißer vorhanden sind, welche den Wert des Korrelationskoeffizients stark beeinflussen können.    
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s3 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_pressure_differential, y=daten_tel_1_betr$current))+
+  geom_point(col="#005e83")+
+  xlim(0, 1.5)+
+  ylim(2.5, 12)+
+  geom_smooth(col="red")+
+      labs(title = "Differentialdruck vs Stromstärke",
+         x = "bar", y = "Volt")
+
+s3
+
+
+
+
+```  
+
+_Beobachtung:_      
+
+Die Werte des Differentialdruckes und Stromstärke weisen ein ähnliches Verhalten wie bei vorheriger Graphik auf, da die Variablen Stromstärke und Leistung mit den Wert 0,983 stark korrelieren.    
+
+Dabei hat der Korrelationskoeffizient für Differenzdruck und Stromstärke den Wert 0,639.     
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s4 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_pressure_differential, y=daten_tel_1_betr$voltage))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Differentialdruck vs Stromspannung",
+         x = "bar", y = "Ampere")
+
+s4
+
+
+
+
+```
+
+_Beobachtung:_       
+
+In der oberen Grafik wird der Zusammenhang zwischen Differenzdruck und Stromspannung dargestellt. Auffällig ist dabei, dass die Werte der Stromspannung als ganze Zahlen (Integer) gespeichert werden. An dem Graphen ist kein eindeutiger Zusammenhang erkennbar. Dies bestätigt auch der Wert des Korrelationskoeffizienten. Für die beiden Variablen ist dieser 0,433.     
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s5 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_pressure_differential, y=daten_tel_1_betr$internal_temperatur))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Differentialdruck vs Temperatur",
+         x = "bar", y = "°C")
+
+s5
+
+
+
+
+```
+
+
+_Beobachtung:_       
+
+Die Grafik oben visualisiert den Zusammenhang zwischen den Differentialdruck und der Temperatur. Es wird in diesem Fall keine Abhängigkeiten erkannt. Es könnte aber auch an den vielen Ausreißern liegen. Der Korrelationskoeffizient hat dementsprechend einen kleinen Wert von 0,171.   
+
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s6 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_flowrate_calculated, y=daten_tel_1_betr$shaft_power))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Leistung",
+         x = "l/min", y = "Watt")
+
+s6
+
+
+
+
+```
+
+
+_Beobachtung:_        
+
+Der obere Plot stellt die Abhängigkeit der Variablen Volumenstrom (berechnet) von der Leistung der Pumpe dar. Die Regressionslinie der beiden Variablen hat die Form eines quadratischen Polynoms. Auffällig dabei ist, dass sich die meisten Punkte in einer Punktewolke konzentrieren und dass es viele einzelne Ausreißer vorhanden sind.     
+
+Für diese beiden Variablen beträgt der Korrelationskoeffizient -0,572. Dieser Wert deutet auf einen Zusammenhang hin, der aber nicht sehr stark ist. Dabei ist es zu beachten, dass es viele einzelne Ausreißer vorhanden sind, welche den Wert des Korrelationskoeffizients stark beeinflussen können.     
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s7 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_flowrate_calculated, y=daten_tel_1_betr$current))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Stromstärke",
+         x = "l/min", y = "Ampere")
+
+s7
+
+
+
+
+```
+
+
+_Beobachtung:_       
+
+Der obere Plot stellt die Abhängigkeit der Variablen Volumenstrom (berechnet) von der Stromstärke dar. Die Regressionslinie der beiden Variablen hat ebenfalls die Form eines quadratischen Polynoms. Auffällig dabei ist, dass sich die meisten Punkte in einer Punktewolke konzentrieren und dass es viele einzelne Ausreißer vorhanden sind.    
+
+Für diese beiden Variablen beträgt der Korrelationskoeffizient -0,576. Dieser Wert deutet auf einen Zusammenhang hin, der aber nicht sehr stark ist. Dabei ist es zu beachten, dass es viele einzelne Ausreißer vorhanden sind, welche den Wert des Korrelationskoeffizients stark beeinflussen können.    
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s8 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_flowrate_calculated, y=daten_tel_1_betr$voltage))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Stromspannung",
+         x = "l/min", y = "Volt")
+
+s8
+
+
+
+
+```
+
+
+_Beobachtung:_      
+
+In der oberen Grafik wird der Zusammenhang zwischen Volumenstrom (berechnet) und Stromspannung dargestellt. An dem Graphen ist kein eindeutiger Zusammenhang erkennbar. Dies bestätigt auch der Wert des Korrelationskoeffizienten. Für die beiden Variablen ist dieser -0,395.    
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s9 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$pump_flowrate_calculated, y=daten_tel_1_betr$internal_temperature))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Temperatur",
+         x = "l/min", y = "°C")
+
+s9
+
+
+
+
+```
+
+_Beobachtung:_      
+
+Die Grafik oben visualisiert den Zusammenhang zwischen den Volumenstrom (berechnet) und der Temperatur. Es wird in diesem Fall keine Abhängigkeiten erkannt. Es könnte aber auch an den vielen Ausreißern liegen. Der Korrelationskoeffizient hat dementsprechend einen kleinen Wert von -0,123.   
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s10 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$shaft_power, y=daten_tel_1_betr$current))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Pumpenleistung vs Stromstärke",
+         x = "Watt", y = "Ampere")
+
+s10
+
+
+
+
+```
+
+_Beobachtung:_      
+
+An dem oberen Plot ist es eindeutig erkennbar, dass die Variablen Pumpenleistung und Stromstärke einen positiven linearen Zusammenhang aufweisen. Das heißt insbesondere, dass bei den steigenden Werten des Pumpenleistung die Werte der Stromstärke auch steigen. Der Korrelationskoeffizient der beiden Variablen beträgt -0,983 und ist dabei statistisch signifikant. Das heißt, die beiden Variablen korrelieren sehr stark miteinander.    
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s11 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$shaft_power, y=daten_tel_1_betr$voltage))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Pumpenleistung vs Stromspannung",
+         x = "Watt", y = "Volt")
+
+s11
+
+
+
+
+```
+
+
+_Beobachtung:_      
+
+An dem oberen Plot ist es eindeutig erkennbar, dass die Variablen Pumpenleistung und Stromspannung einen positiven quadratischen Zusammenhang aufweisen. Dabei ist zu beachten, dass die Regressionslinie (rot) nur deshalb quadratische Form annimmt, da in dem Datensatz Ausreißer vorhanden sind. Das heißt insbesondere, dass bei den steigenden Werten des Pumpenleistung die Werte der Stromspannung auch steigen. Der Korrelationskoeffizient der beiden Variablen beträgt 0,701 und ist dabei statistisch signifikant. Das heißt, die beiden Variablen korrelieren sehr stark miteinander.    
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s12 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$shaft_power, y=daten_tel_1_betr$internal_temperature))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Pumpenleistung vs Temperatur",
+         x = "Watt", y = "°C")
+
+s12
+
+
+
+
+```
+
+
+_Beobachtung:_     
+
+
+Die Grafik oben visualisiert den Zusammenhang zwischen den Pumpenleistung und der Temperatur. Es wird in diesem Fall keine Abhängigkeiten erkannt. Es könnte aber auch an den vielen Ausreißern liegen. Der Korrelationskoeffizient hat dementsprechend einen kleinen Wert von 0,357.   
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s13 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$current, y=daten_tel_1_betr$voltage))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Stromstärke vs Stromspannung",
+         x = "Ampere", y = "Volt")
+
+s13
+
+
+```
+
+_Beobachtung:_      
+
+An dem oberen Plot ist es eindeutig erkennbar, dass die Variablen Stromspannung und Stromstärke einen positiven quadratischen Zusammenhang aufweisen. Dabei ist zu beachten, dass die Regressionslinie (rot) nur deshalb quadratische Form annimmt, da in dem Datensatz Ausreißer vorhanden sind. Das heißt insbesondere, dass bei den steigenden Werten der Stromstärke die Werte der Stromspannung auch steigen. Der Korrelationskoeffizient der beiden Variablen beträgt 0,675 und ist dabei statistisch signifikant. Das heißt die beiden Variablen korrelieren sehr stark miteinander.  
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s14 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$current, y=daten_tel_1_betr$internal_temperature))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Stromstärke vs Temperatur",
+         x = "Ampere", y = "°C")
+
+s14
+
+
+```
+
+
+_Beobachtung:_      
+
+
+Die Grafik oben visualisiert den Zusammenhang zwischen der Stromstärke und der Temperatur. Es wird in diesem Fall keine Abhängigkeiten erkannt. Es könnte aber auch an den vielen Ausreißern liegen. Der Korrelationskoeffizient hat dementsprechend einen kleinen Wert von 0,391.   
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s15 <- ggplot(daten_tel_1_betr, aes(x=daten_tel_1_betr$voltage, y=daten_tel_1_betr$internal_temperature))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Stromspannung vs Temperatur",
+         x = "Volt", y = "°C")
+
+s15
+
+
+```
+
+
+_Beobachtung:_      
+
+Die Grafik oben visualisiert den Zusammenhang zwischen der Stromspannung und der Temperatur. Es wird in diesem Fall keine Abhängigkeiten erkannt. Es könnte aber auch an den vielen Ausreißern liegen. Der Korrelationskoeffizient hat dementsprechend einen kleinen Wert von -0,209.   
+
+
+
+## Daten ohne Ausreißer        
+
+
+Nachfolgend werden die Zusammenhänge zwischen den Variablen dargestellt und beschrieben, nachdem die meisten (eindimensionalen) Ausreißer aus dem Datensatz entfernt wurden.    
+
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE, comment=" "}
+
+
+
+## Eindimensionale Ausreißer entfernen
+
+#names(daten_tel_1_betr)
+
+library(dplyr)
+daten_tel_1_betr_aus <- daten_tel_1_betr %>% filter(daten_tel_1_betr$pump_pressure_differential < 1 & daten_tel_1_betr$pump_pressure_differential > 0.5 & daten_tel_1_betr$pump_flowrate_calculated > 2500 & daten_tel_1_betr$pump_flowrate_calculated < 4000 & daten_tel_1_betr$shaft_power > 2000 & daten_tel_1_betr$shaft_power < 5000 & daten_tel_1_betr$current > 7.5 & daten_tel_1_betr$current <= 10 & daten_tel_1_betr$voltage < 290 & daten_tel_1_betr$voltage > 285)
+
+
+#dim(daten_tel_1_betr)       # 471670     15
+#dim(daten_tel_1_betr_aus)   # 446509     15
+
+## Es sind ca. 5,33 % an den Daten, die durch diese Filterung entfernt werden.
+
+
+
+
+```
+
+
+Wie man der unteren Scatterplot-Matrix entnehmen kann, werden Zusammenhänge und Abhängigkeiten zwischen einigen Variablen nach dem Entfernen der Ausreißer noch eindeutiger. Einige von denen werden weiter unten etwas detaillierter betrachtet.      
+ 
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+
+
+## pump_pressure_differential, act_rotational_speed, pump_flowrate_calculated, shaft_power, current, voltage, internal_temperature
+
+
+### nur nummerische Variablen auswählen
+
+#names(daten_tel_1_betr_aus)
+
+daten_tel_1_betr_aus_nam <- daten_tel_1_betr_aus %>% rename(Zeit = timestamp, Energieverbrauch = pump_energy, Fehler = error, Diff.druck = pump_pressure_differential, Vol.strom = pump_flowrate_calculated,  Leistung = shaft_power, Stromstärke = current, Spannung = voltage, Betriebsstunden = operating_hours, Temperatur = internal_temperature)
+
+#names(daten_tel_1_betr_aus_nam)
+
+daten_tel_1_betr_aus_nam_cor <- daten_tel_1_betr_aus_nam[,c(4,6,7,8,9,11)]
+
+#dim(daten_tel_1_betr_aus_nam_cor)   # 446509      6
+
+
+#library(corrplot)
+#corrplot(cor(daten_tel_betr_1_cor))
+
+# Da die Normalverteilung einzelner Variablen nicht garantiert / nicht gegeben ist, werden die Korrelationskoffezienten nach dem Spearman-Ansatz berechnet.
+
+library(corrplot)
+corrplot(cor(daten_tel_1_betr_aus_nam_cor, method = "spearman"))
+
+
+library(GGally)
+#p <- ggpairs(daten_tel_1_betr_aus_nam_cor) 
+#p
+
+
+
+lowerFn <- function(data, mapping) {
+  p <- ggplot(data = data, mapping = mapping)+
+    geom_point(colour = "#005e83") +
+    geom_smooth(color = "red") +
+    theme(axis.title = element_text(size = 0.2))    
+   # theme(axis.text=element_text(size=5))+
+  #  theme(axis.text=element_text(size=5))+ 
+  #  theme(axis.title=element_text(size=14,face="bold"))
+  p
+}
+
+
+pp <- ggpairs(
+  daten_tel_1_betr_aus_nam_cor, lower = list(continuous = wrap(lowerFn)),
+  diag = list(continuous = wrap("barDiag", fill = "#005e83")),
+  upper = list(continuous = wrap("cor"))
+)
+
+pp
+
+
+
+
+
+
+
+
+```  
+
+
+## Korrelationskoeffizienten     
+
+In dem nachfolgenden Output werden unter anderem die Korrelationskoeffizienten zwischen jeweils zwei Variablen dargestellt.  
+
+In dem ersten Teil sind die Korrelationen des (nach Ausreißern) gefilterten Datensatzes angegeben. In dem zweiten Teil sind die Korrelationen nicht gefilterten Datensatzes angegeben. Anteil der aus dem Datensatz entfernten Ausreißern beträgt ca. 5,33 %. 
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" "}
+
+#names(daten_tel_1_betr_aus)
+
+daten_tel_1_betr_aus_cor <- daten_tel_1_betr_aus[,c(4,6,7,8,9,11)]
+
+
+library(correlation)
+# daten_tel_1_betr_aus_nam_cor
+
+correlation(daten_tel_1_betr_aus_nam_cor, include_factors = TRUE, method = "auto")  # evt. spearman
+
+correlation(daten_tel_betr_1_cor_nam, include_factors = TRUE, method = "auto")  # evtl spearman
+
+
+```
+
+**__Anmerkung:__**    
+
+* Durch das Entfernen der eindimensionalen Ausreißer aus dem Datensatz sind die Korrelationen zwischen jeweils zwei Variablen noch ausgeprägter und eindeutiger geworden. Das wird nochmal an den oberen Tabellen/Outputs eindeutig. Weiter werden die Zusammenhänge nochmal in den Plots dargestellt.    
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s1 <- ggplot(daten_tel_1_betr_aus_cor, aes(x=daten_tel_1_betr_aus_cor$pump_flowrate_calculated, y=daten_tel_1_betr_aus_cor$pump_pressure_differential))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Differentialdruck",
+         x = "l/min", y = "bar")
+
+s1
+
+
+```
+
+_Beobachtung:_       
+
+An dem oberen Plot ist es eindeutiger negativer linearer Zusammenhang zwischen der Variablen Volumenstrom (berechnet) und dem Differentialdruck erkennbar. Die wenigen Ausreißer, welche noch enthalten sind, haben keinen Einfluss auf den Verlauf der Regressionsgeraden (rot).     
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+
+
+s2 <- ggplot(daten_tel_1_betr_aus_cor, aes(x=daten_tel_1_betr_aus_cor$pump_pressure_differential, y=daten_tel_1_betr_aus_cor$shaft_power))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Differentialdruck vs Leistung",
+         x = "bar", y = "Watt")
+
+s2
+
+
+```
+
+
+_Beobachtung:_     
+
+Zwischen den Variablen des Differentialdruckes und Pumpenleistung ist ein quadratischer Zusammenhang erkennbar. Wobei die Werte der Pumpenleistung mit den steigenden Werten des Differentialdruckes überwiegend ansteigen. Nur bei den Werten etwa ab 0,9 bar sinken die Werte der Leistung mit den zunehmendem Druck.         
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s3 <- ggplot(daten_tel_1_betr_aus_cor, aes(x=daten_tel_1_betr_aus_cor$pump_pressure_differential, y=daten_tel_1_betr_aus_cor$current))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Differentialdruck vs Stromstärke",
+         x = "bar", y = "Volt")
+
+s3
+
+
+
+
+```  
+
+
+_Beobachtung:_     
+
+Ein ähnliches Verhalten der Daten ist ebenfalls zwischen den Variablen des Differentialdruckes und Stromstärke erkennbar.  
+
+
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s6 <- ggplot(daten_tel_1_betr_aus_cor, aes(x=daten_tel_1_betr_aus_cor$pump_flowrate_calculated, y=daten_tel_1_betr_aus_cor$shaft_power))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Leistung",
+         x = "l/min", y = "Watt")
+
+s6
+
+
+
+
+```
+
+_Beobachtung:_     
+
+An dem oberen Plot ist ebenfalls ein quadratischer Zusammenhang zwischen der Variablen Volumenstrom und Pumpenleistung erkennbar. Dabei steigen die Werte der Leistung mit den steigenden Werten des Volumenstroms (etwa bis zum 2.800 l/min) im mittel auch an. Danach sinken die Werte der Pumpenleistung mit den steigenden Volumenstrom. Im mittleren Bereich ist eine größere Streuung der Daten erkennbar.   
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s7 <- ggplot(daten_tel_1_betr_aus_cor, aes(x=daten_tel_1_betr_aus_cor$pump_flowrate_calculated, y=daten_tel_1_betr_aus_cor$current))+
+  geom_point(col="#005e83")+
+  geom_smooth(col="red")+
+      labs(title = "Volumenstrom vs Stromstärke",
+         x = "l/min", y = "Ampere")
+
+s7
+
+
+
+
+```
+
+_Beobachtung:_     
+
+
+Das selbe Verhalten ist auch im Zusammenhang mit den Variablen Volumenstrom und Stromstärke erkennbar. Es ist ebenfalls ein quadratischer Zusammenhang. Dabei steigen die Werte der Stromstärke mit den steigenden Werten des Volumenstroms (etwa bis zum 2.800 l/min) im mittel auch an. Danach sinken die Werte der Stromstärke mit den steigenden Volumenstrom. Im mittleren Bereich ist eine größere Streuung der Daten erkennbar.     
+
+
+ 
+
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, comment=" ", fig.width=10}
+
+s10 <- ggplot(daten_tel_1_betr_aus_cor, aes(x=daten_tel_1_betr_aus_cor$shaft_power, y=daten_tel_1_betr_aus_cor$current))+
+  geom_point(col="#005e83")+
+  xlim(3500, 5000)+
+  geom_smooth(col="red")+
+      labs(title = "Pumpenleistung vs Stromstärke",
+         x = "Watt", y = "Ampere")
+
+s10
+
+
+
+
+```
+
+_Beobachtung:_     
+
+An dem oberen Plot ist es eindeutiger positiver linearer Zusammenhang zwischen der Variablen Volumenstrom (berechnet) und dem Differentialdruck erkennbar. Dabei werden noch gebliebene Ausreißer nicht beachtet. Die Regressionsgerade hat eine positive Steigung. Das bedeutet, dass mit den steigenden Werten der Pumpenleistung auch die Werte der Stromstärke im Mittel ansteigen.     
+
+
+
+
+
+
+# Fazit und Bewertung der Datenqualität             
+
+
+
+
+
+## Fehlende Werte, Zeitstempel      
+
+
+*  Die erste Analyse der Daten ergab, dass der Rohdatensatz keine Zeilen, bei denen die Einträge fehlen, enthält.     
+
+*  Trotzdem sind bei einigen Variablen unplausible Werte vorhanden. Deren Herkunft soll geklärt werden. Außerdem soll überlegt werden, inwiefern solche Ausprägungen einen Einfluss auf Modelle und Modellergebnisse haben könnten und wie man mit diesen am besten umgehen soll. Sollen die Werte “0” für die Variablen “pump_energy” und “internal_temperature” vor dem Training aus dem Datensatz entfernt oder mit anderen realistischen Werten ersetzt werden? Denn sonst können diese zu verzerrten Ergebnissen der Modelle führen.     
+
+*  Der Zeitstempel in dem Rohdatensatz wird als “Unix-Zeitstempel” gespeichert. Es muss bei dem weiteren Handeln mit den Daten (Zusammenführen, Berechnungen und Visualisierungen) beachtet werden.   
+
+
+
+
+## Doppelte Werte nach dem Zeitstempel     
+
+Des Weiteren wurde der Rohdatensatz nach den doppelten/vielfachen Zeitstempeleinträgen untersucht.    
+Der uns zur Verfügung gestellte Datensatz enthält Doppelte Werte nach dem Zeitstempel. Es war vorzusehen, da in dem Datensatz die Werte für 2 Pumpen, die aber unter einem Devicenamen laufen, gespeichert werden. Betrachtet man aber die Daten der Pumpen 1 und 2 je in einem Datensatz aufgeteilt, so sind es keine doppelten Werte in dem Zeitstempel in den jeweiligen Teildatensätzen vorhanden.     
+
+
+### Doppelte Werte (nach dem Zeitstempel) pro Pumpe      
+
+Nachfolgend wurde untersucht, ob die Teildatensätze, in dem die Daten von der 1. und 2. Pumpe gespeichert wurden, doppelte Werte in dem Zeitstempel haben.      
+
+
+
+#### 1. Pumpe:    
+
+
+* Es wurde festgestellt, dass der Datensatz mit den Daten von der ersten Pumpe keine doppelten Zeitstempeleinträge enthält.       
+
+#### 2. Pumpe:    
+
+
+* Der Datensatz mit den Daten von der zweiten Pumpe enthält ebenfalls keine doppelten Zeitstempeleinträge.      
+
+**_Anmerkung_**      
+
+Sollte es weitere verschiedene Sensorik mit dem eigenen Zeit-Vergaben angebracht werden, wobei die Werte dann in einer gemeinsamen Datenbank abgespeichert werden, muss es drauf geachtet werden, dass es pro Pumpe keine gleichen Zeitstempeleinträge gibt!       
+
+
+
+
+
+## Ausreißer (Nicht plausible Werte der Variablen)       
+
+
+Als Ausreißer können verschiedene Werte der Variablen definiert werden.    
+
+*  Zum einen sind es solche Werte, die in der Natur nicht vorkommen können. Das sind z.B. in dem vorliegenden Datensatz die Werte “0” für die Variablen “internal_temperature”, “operating_hours” und “pump_energy”, die unplausibel sind. Bei den letzten zwei erwähnten Variablen ist es so, da die Werte als kumulative Summe (d.h. die Werte werden im Zeitverlauf immer größer) der vorherigen Werte anzusehen sind und logischerweise in dem Zeitverlauf nicht zwischendurch auf Nullwerde springen/abfallen können.    
+
+*  Zum anderen könnten auch solche Werte einer Variablen als Ausreißer betrachtet werden, die einen großen Abstand von dem Mittelwert/Median einer Variablen haben. Diese können z.B. anhand der Boxplots und anderen Visualisierungen in dem Eindimensionalen Raum identifiziert werden.    
+
+- “voltage” es sind Werte unter “50” (Stillstände und Anlaufphasen der Pumpen)   
+
+- “act_rotational_speed” es sind Werte unter “100” (Stillstände und Anlaufphasen der Pumpen)   
+
+- “pump_pressure_differential” es sind Werte unter “0” (Stillstände und Anlaufphasen der Pumpen)   
+
+- “running” es sind Werte auf “0” (Stillstände der Pumpe)    
+
+=> Anhand der Boxplots, Variablen, die starke Ausreißer enthalten      
+
+
+- “statusword” wird nicht direkt für die Analyse verwendet      
+
+- “error” einige Werte sind auf “1” (Es waren Fehler in dem Betrieb der Pumpen aufgetreten.)       
+
+
+
+
+
+## Abtastrate der Variablen      
+
+
+Die Speicherung der Daten erfolgt in einem 10 Sekunden Takt. Dabei werden nur die aktuellen Werte (jede 10. Sekunde) berücksichtigt und gespeichert. Da es nicht bekannt ist (anhand der vorliegenden Daten) wie stark die Werte der jeweiligen Variablen insbesondere “shaft_power” (Leistung) innerhalb der 10 Sekunden schwanken (die Varianz ist unbekannt), kann man nicht genau sagen, ob die Daten in ausreichender Frequenz gespeichert werden. Als Empfehlung könnte man sagen, dass für bestimmte Variablen mit einer höheren Frequenz als 10 Sekunden, man zusätzlich weitere Werte (Minimum, Maximum, Mittelwert) abspeichert und die Unterschiede (Differenzen, Varianzen usw.) vergleicht. Macht man es bei einigen wenigen Variablen, ist die Menge der gespeicherten Daten geringer, als wenn man alle Variablen im sekündlichen Takt abspeichern würde. Sollten größere Unterschiede zwischen den Werten vorhanden sein und die Abtastrate gering wie möglich gehalten werden, müsste die Speicherung der Daten unter Berücksichtigung der jeweilige(-n) Fragestellung(-en) angepasst werden.          
+
+Als Alternative zu der 10-sekundigen Speicherung aller Variablen, könnte man die Werte der Variablen nur bei Änderung der Werte und in den bestimmten (plausiblen) Abständen (z.B. sekündlich, minütlich, jede fünf Minuten, halbstündlich, stündlich usw.) abspeichern. Dabei muss es gesichert werden, dass die Zuordnung der Daten zu der dazugehörigen Pumpe und Device jeder Zeit gegeben ist.           
+
+Man könnte auch überlegen, ob für die Variablen, welche nicht bei dem jeweilige Device abgetastet werden, gar keine Werte abgespeichert werden. Dabei würde man an der Datenübertragung und -speicherung sparen. Denn “0” ist ein Wert, bei der Modeltraining und Berechnung der Modellergebnisse wird dieser auch so interpretiert. Wird es anstatt nicht vorhandenen Werten mit Null gerechnet, sind die Ergebnisse u.U. falsch.
+
+
+# Zusammenfassung        
+
+
+Zusammenfassend lässt sich die Datenqualität des bereitgestellten Datensatzes als ausreichend für die Berechnung einfachen Modelle in Bezug auf Filterreinigung der Pumpen bewerten. Es sind im Datensatz einige Variablen enthalten, die nicht abgetastet wurden, dennoch die „0“ als Einträge haben. Dies führt u.U. zu zusätzlichen Kosten bei der Datenübertragung und -speicherung. Dies könnte man damit verhindern, wenn es nur die abgetasteten Werte gespeichert werden. Eine weitere Möglichkeit an den Übertragungs- und Speicherkosten zu sparen, wäre Werte nur bei  Änderungen zu übertragen. Außerdem ist es auffällig, dass einige Variablen Nullwerte, die aber nicht durch physikalische oder logische Überlegungen erklärt werden können, haben. Diese sollten deshalb als fehlende Werte kennzeichnet werden. Damit sie gegebenenfalls korrigiert werden können, muss deren Ursprung/Herkunft definiert und genau untersucht werden. 
+
+Es wurden Variablen, deren Kennwerte und Eigenschaften berechnet und anhand der Graphen visualisiert. Danach wurden die Zusammenhänge zwischen je zwei Variablen näher untersucht. Variable der inneren Temperatur korreliert mit keiner anderen Variablen in dem Datensatz. Dies kann aber auch damit zusammenhängen, dass deren Werte sich vor und nach den An- und Auslaufphasen der Pumpen nicht so stark ändern, wie die Werte anderer betrachteten Variablen. Die Variablen der Leistung und Stromstärke korrelieren hingegen sehr stark miteinander. Das ist auch durch physikalische Zusammenhänge erklärbar. Dasselbe gilt für den berechneten Volumenstrom und Differenzdruck der Pumpe.         
+
+
+
+
+
+# Entwicklung eines Machine Learning Modells zur Erkennung der Filterverschmutzung           
+
+Eine kontinuierliche Pumpen-Überwachung mithilfe von Machine Learning (ML) Ansätzen ermöglicht eine Prognose – und nicht (nur) Diagnose – relevanter Betriebsdaten und somit die Vorhersage eines Ereignisses, bevor es eintritt. Je nach Zielanwendung führt dies zu einer Reduzierung der Ausfallzeiten, Erhöhung der Pumpenperformance und Minimierung des Energieverbrauches.     
+
+Der große Vorteil einer ML-Implementierung besteht darin, mathematische Algorithmen in einer komplexeren mehrdimensionalen Domäne zu entwickeln und diese zur Lösung einer spezifischen Fragenstellung anhand großer Datenmengen anzuwenden. Das Gegenstück, die traditionelle Zustandsüberwachung, beschäftigt sich nur mit der Diagnose der Maschinenzustandes ohne externe Faktoren und komplexe Zusammenhänge zu betrachten.      
+
+
+## Datenerfassung für Kreiselpumpen      
+
+Bei der Zustandsüberwachung bzw. prädiktiven Wartung werden Zustandsparameter von Kreiselpumpen im Betriebsverlauf gemessen, um eine signifikante Veränderung zu erkennen, die auf einen sich entwickelnden Fehler hinweist. Diese Merkmale sind in der Regel Zeitreihendaten und können als eindimensionale Daten betrachtet werden, die aus Signalamplituden bei einer regelmäßigen Abtastrate gemessen werden. Temporäre Abhängigkeiten inhärent in Zeitreihendaten machen für ein Machine Learning Model das Erlernen des Maschinenverhaltens herausfordernd. Übliche gemessene Variablen sind Differentialdruck, Schwingung, Lagerungstemperatur und Leistungsverbrauch.           
+
+
+## Machine Learning      
+
+Machine Learning ist Teilbereich der Künstliche Intelligenz und beschäftigt sich mit mathematischen Algorithmen, die aus Daten mit Hilfe von Computern gefundene Muster “lernen” sollen (sogenanntes Training). Diese Information wird dann zur Erstellung von Vorhersagemodellen verwendet. Die Implementierung von Machine Learning erfordert mehrere Schritte und technische Überlegungen; im Folgenden werden diese kurz erläutert. 
+
+
+
+
+### ML-Ansätze: Supervised Learning & Unsupervised Learning     
+
+Auf der Basis von Trainingsdaten wird ein ML-Modell erstellt, die aus Labels und Features besteht. Labels sind Klassen, Bezeichnungen oder Eigenschaften, auf deren Ausgabe das ML-Modell trainiert wird. Features  dagegen sind die Eingaben, also die Variablenwerte. Abhängig davon, ob die Labels der Datenpunkte bekannt sind, unterscheidet man zwischen:   
+
+* Supervised Learning: Jeder Datenpunkt entspricht einem Pumpenzustand bzw. einem Betriebsparameter und dies ist gekennzeichnet. Beispiel dafür ist der Verschmutzungsgrad des Pumpenfilters, bekannte Ursache eines Ausfalles, etc. Das ML-Model wird mit bekannten Eingaben auf die erwarteten Ausgaben trainiert     
+
+* Unsupervised Learning: das Training erfolgt ohne feste Ausgaben (gelabelte Daten) und daher kein Feedback an das Model    
+
+### ML-Methoden: Regression vs Klassifikation     
+
+Während Regressionsmodelle eine numerische Ausgabe einer Zielvariable vorhersagen, unterteilen Klassifikationsmodelle den Datensatz in Untermengen – hier erfolgt die Zuordnung einer Klasse mit zugehöriger Wahrscheinlichkeit. Welcher Ansatz sich am besten für einen Anwendungsfalls eignet, hängt von der Natur des Datensatzes und erwünschten Ziels ab. In der Regel kommt bei kontinuierlichen Datensätzen eine Regression und bei diskreten Systemen eine Klassifizierung zum Einsatz.       
+
+
+### ML-Algorithmen      
+
+Ein Algorithmus beschreibt eine Abfolge von Berechnungen und Regeln, die zur Lösung eines Problems bzw. zur Analyse eines Datensatzes verwendet werden. Die Auswahl eines passenden Algorithmus ist in der Regel ein iterativer Prozess innerhalb des Data Science LifeCycle - oft erst nach dem Training kann die Performance eines Algorithmus ermittelt und diese mit anderen Ergebnissen nach Anpassung der Modell-Parametern und des ausgewählten ML-Modells abgeglichen werden. Erfahrungsgemäß sind für Kreiselpumpen je nach Use Case folgende Algorithmen zu empfehlen:              
+
+
+*	Autoregressive Modelle (AR): Eine Erweiterung der Lineare Regression für Zeitreihenanalyse bildet das autoregressive Modell. Der Algorithmus verwendet die Werte einer Zielvariable aus den vergangenen Zeitabschnitten, um die zukünftigen Werte vorherzusagen. Eine Variante, das ARIMA Modell, modelliert in seinem Moving Average (MA) Fehlerterm eine lineare Abhängigkeit zu allen Fehlertermen, die gleichzeitig und zu verschiedenen vergangenen Zeitpunkten auftreten             
+
+*	Deep Learning (DL): Der Algorithmus nutzt sogenannte Neuronale Netze für die Informationsverarbeitung und hat die Fähigkeit, komplexere Zusammenhänge aus den Rohdaten (Telemetrie) zu lernen, ohne nötiges Feature Learning durchführen zu müssen. Sowohl in Regression als auch in Klassifizierung kommen Neuronale Netze zum Einsatz. DL-Modelle sind oft komplex, was Bedarf an großen Datenmengen, Rechenzeit und Ressourcen für das Training und die endgültige Modellverarbeitungszeit erfordert       
+
+*	Support Vector Machine (SVM): Das Ziel des SVM ist es, eine Hyperplane in einem N-dimensionalen (Anzahl an Features) Raum zu finden, die die Datenpunkte eindeutig klassifiziert. Der Algorithmus ist für das Training von kleinen Datenmengen geeignet und lässt sich sowohl in Regression als auch in Klassifizierung anwenden            
+
+*	Weitere Algorithmen für die Zeitreihenanalyse sind: XGBoost, Entscheidungsbäume, Bayes-Klassifikator, etc.        
+
+
+## Use Case – Optimierung des Zeitintervalls für die Filterreinigung       
+
+Durch eine Optimierung des Zeitintervalls für die Filterreinigung lassen sich der Energieverbrauch reduzieren, die Betriebsperformance und die Lebensdauer der Pumpe erhöhen. Mit Hinblick auf den o.g. Use Case werden wir im folgenden Kapitel konkrete Aussagen treffen, welche Machine Learning Ansätze am besten dafür geeignet sind. Da jeder ML-Lösung individuell ist, sollten diese Punkte als Empfehlungen zu weiteren Vorgehensweisen und nicht als feste Anleitungen angenommen werden.     
+
+
+### Variablen      
+
+Basierend auf der statischen Analyse in vorherigen Kapiteln sind folgende Variablen pro Pumpe und Zeitstempel für das Training zu berücksichtigen: “act_rotational_speed”, “pump_flowrate_calculated”, “pump_pressure_differential”, “shaft_power”, “timestamp”. Diese Untermenge schließt stark miteinander korrelierte Features sowie wenig zu der Zielvariable korrelierte Features aus.             
+
+
+Darüber hinaus sind folgende weitere Hinweise zu beachten:      
+
+*	Die Telemetrie-Daten erfassen den Betriebsverlauf der Pumpen über 3 Monate. Sollten diese  Datenmenge, je nach ausgewähltem ML-Modell, nicht genügend sein, empfiehlt sich weitere Zeitabschnitte einzubeziehen. Alternativ wäre Data Augmentation zur Erzeugung künstlicher Daten eine Lösung  
+
+*	Um Saisonalität im Betriebsverhalten feststellen zu können, sollen alle Datenpunkte aller Betriebsphasen berücksichtigt werden     
+
+*	Es wurde bisher kein Zusammenhang zwischen Häufigkeit an der Filterreinigung zu den Wetterdaten, Wochentag oder Sommerferien festgestellt. Diese Zusammenhänge werden deshalb erstmal in einem ML-Model nicht berücksichtigt      
+
+*	Aus einer Business-Perspektive sind Betriebskosten und potentieller Einsparung in Bezug auf eine ML-Implementierung einzubeziehen     
+
+*	Die Error-Logs Dataset ist nur relevant, um Auffälligkeiten (wie starke Fluktuationen in den Variablenwerten) nachzuvollziehen, jedoch liefern diese keine weitere relevanten Informationen für den UC            
+
+*	Besucheranzahl im Schwimmbad war bisher als Variable nicht vorhanden. Falls möglich, ist eine Korrelation zwischen Besucheranzahl und Filterverschmutzung bzw. Häufigkeit an Filterreinigungsaktivitäten zu untersuchen      
+
+
+### ML-Ansatz      
+
+Geeignet für den UC wären beide Regressions- und/oder Klassifizierungsmodelle. Unsupervised Learning, z.B. Clustering, eignet sich für die Zeitreihenanalyse im Bereich der rotierenden Maschinen nicht und wird deswegen in dieser Analyse ausgeschlossen.      
+
+### Setzen einer Threshold (Grenzwert)     
+
+Eine Eigenschaft bzw. Parameter des Business Cases ist das Setzen eines festen Wertes (oder Wertebereiches), der die Filterveschmutzung anhand einer Zielvariable (z.B. Leistungsverbrauch) genauer beschreibt. Ein Grenzwert ermöglicht die Anwendung von Supervised Learning Methoden: Im Fall einer Regression, bezieht sich der Grenzwert direkt auf die Zielvariable, wodurch ein Abgleich zwischen Soll- und Ist-Wert möglich wäre. Im Fall einer Klassifizierung, dient ein Grenzwert dazu, die Datenmenge nach Zielvariablenwerten zu unterteilen und somit Klassen zu erzeugen.      
+
+
+Nur mithilfe eines Grenzwertes ist eine technische Entscheidung, wann der Pumpenfilter bereinigt werden soll, möglich.       
+
+### Setzen einer mehrdimensionales Zielvariable      
+
+Bisher wurde hauptsächlich „shaft_power“ (gemessener Leistungsverbrauch) als Zielvariable genommen. Diese ist eindimensional, weist eine geringe Varianz (Maximale Leistungsreduzierung durch die Filterverschmutzung beträgt um die 10%) auf und liefert allein keine aussagekräftigen Informationen über den Filterverschmutzungsgrad. Eine alternative Überlegung wäre, mehrdimensionale Variable(n) aus den vorhandenen Telemetrie-Daten zu errechnen und diese für das Modell-Training zu nehmen. Beispiel dafür könnten sein: Leistung pro Volumenstrom, Leistung pro Differentialdruck, Pumpeneffizienz, etc.      
+
+
+### ML-Baseline Modell     
+
+Im Machine Learning Kontext ist eine Baseline ein einfaches heuristisches Modell basierend auf traditioneller Statistik, das vernünftige Ergebnisse für eine Fragestellung liefert. Dies dient als Ausgangspunkt zur Erstellung komplexerer Modelle, die mehr Modellierungszeit und Rechenkapazität erfordern. Zu den gängigen Baseline-Modellen gehören beispielsweise die lineare Regression bei der Vorhersage kontinuierlicher Werte und die logistische Regression bei der Klassifizierung strukturierter Daten.     
+
+
+Ein einfaches Regressionsmodel geeignet für den aktuellen Use Case ist das ARIMA Model (Auto Regressive Integrated Moving Average). Das ARIMA sollte unter anderem in der Lage sein, die Saisonalität (temporäre Abhängigkeiten, zeitlich gesehen) der Pumpen-Betriebsphasen (nach nominaler Drehzahl sind diese: Tag, Nacht, keins von denen) in Bezug auf die Telemetrie-Daten festzustellen. Die Herausforderung für das Model ist, vorherzusagen, wie schnell sich der Filter unter Betrachtung eines mehrdimensionalen Problems verschmutz. Voraussetzung für das Model ist eine definierte Zielvariable und entsprechender Grenzwert, es darf keine Multikollinearität unter den Variablen vorhanden sein und die unabhängigen Variablen müssen einen signifikanten Zusammenhang zu der Zielvariable haben.       
+
+
+### Weitere ML-Modelle     
+
+Deep Learning: DL umfasst für Kreiselpumpen mehrere Varianten wie Autoencoder Long Short Term Memory Neuronale Netze (LSTM), Convolutional Neuronale Netze (CNN) und allgemeine Rekurrente Neuronale Netze (RNN).      
+
+Support Vector Machine (SVM): In dem Fall einer Klassifizierung bzw. Vorhersage von Filterverschmutzungsgrad, benötigt das Modell manuell ermittelte Features, was nötige Expertise in der manuellen Datenanalyse erfordert.            
+
+Es ist ebenfalls möglich, eine ML-Lösung bestehend aus mehreren Modellen zusammen zu erstellen, sei in Form von Pipeline (aufeinander aufgebaut) oder nach dem sogenannten Ensemble Learning (kombinierte Ergebnisse).       
+
+## Künftige Use Case(s)     
+
+Dieser Abschnitt soll ein Hinblick über häufige Ursachen von Versagen bzw. Ausfällen in Kreiselpumpen geben, mit dem Ziel, potentielle ML-Implementierungen zu erläutern. Historische Daten zu Maschinenversagen intern in Herboner Pumpen sollen jedoch hierfür mehr konkrete Informationen darüber enthalten, wo genau der Bedarf an einer künftigen ML-Lösung besteht.            
+
+Erfahrungsgemäß werden in der Industrie folgende aufgelistete Use Cases mithilfe von Machine Learning Anwendungen erfolgreich gelöst. Neben den bisher vorhandenen Telemetrie-Daten sind für die prädiktive Wartung Variablen wie Schwingung und Lagerungstemperatur notwendig, was mit Anschaffungskosten für Sensorik verbunden ist.       
+
+Filter Blockade: Die Verstopfung des Pumpeneinlasses kann zu Kavitation oder zum Ausfall mechanischer Teile aufgrund der erhöhten Schwingungsamplituden führen. Ein ML-Modell kann zur Vorbeugung dieses Problems Daten aus einem Verstopfungsexperiment verwenden und diese zur Klassifizierung des Verstopfungsgrads in dem Pumpenfilter nutzen. Wichtige Variablen zu messen sind Differentialdruck an dem Filter, Volumenstrom nach dem Filter und Schwingung an der Lagerung. Geeignete ML-Algorithmen für beide Regression and Klassifizierung sind Convolutional Neuronale Netze (CNN) und Long Short Term Memory Neuronale Netze (LSTM).              
+
+Anomaly Detection: Eine in der Industrie verbreitete ML-Anwendung für rotierende Maschinen ist die Diagnose des Maschinenzustandes durch die Feststellung von Anomalien. Als Anomalien wird eine Zielvariable bzw. ein vom ML-Model errechneten Parameter bezeichnet. Ein geeignetes Semisupervised Learning ML-Algorithmus dafür ist beispielweise das Autoencoder LSTM, wofür keine Labels im Datensatz notwendig sind.          
+
+Kavitation: Kavitation kann als hochfrequente, breitbandige Zufallsschwingungen betrachtet werden. Kavitation kann die Amplitude der Pumpenschaufelfrequenz und ihrer harmonischen Schwingungen erhöhen und Pitting aufgrund der lokalen Spannungen auf die Pumpenoberfläche verursachen. Diese physikalischen Phänomene lassen sich üblicherweise mithilfe von Vibrations- und Akustiksensoren feststellen. Darüber hinaus behindern die Dampfblasen um das Laufrad den Flüssigkeitsstrom, wodurch sich der Förderstrom und der Wirkungsgrad verringert. Die aus dem Zeit- und Frequenzbereich der Vibrations- und Akustikanalyse extrahierten Merkmale können als Eingaben für einen SVM-Algorithmus verwendet werden. Weitere Algorithmen wie CNN und LSTM Neuronale Netze oder eine Lineare Regression mit NPSH als Zielvariable lassen hierfür sich anwenden.            
+ 
+
+
+
+# Fazit und weitere Ausblicke      
+
+Mit Hinblick auf die Erstellung eines Machine Learning Models für den aktuellen Use Case lassen sich zusammenfassend folgende Aussagen treffen:   
+
+*	Für die Implementierung einer ML-Lösung ist eine mögliche Reduzierung der Betriebskosten durch die Optimierung des Filterreinigung-Zeitintervales zu berechnen      
+
+*	Gewonnenen Ergebnisse eines bzw. verschiedener ML-Modelle können mehr Informationen vermitteln, inwiefern die bisher vorhandenen Telemetrie-Daten dem Use Case genügend repräsentativ sind. Hier ist ebenfalls wichtig zu validieren, ob ein einzelnes ML-Modell mehrere Pumpenausführungen und Anwendungen gut beschrieben kann (ob ein ML-Modell einer Pumpe übertragbar ist auf weitere Pumpen)           
+
+*	Es besteht die Notwendigkeit, einen Grenzwert für eine Zielvariable zu setzen. Dieser Wert bzw. Wertbereich ist eine Business-Entscheidung, zum Beispiel mit Blick Fokus auf das Energieeinsparungspotential              
+
+*	ARIMA Regression wird als Ausgangspunkt für die ML-Analyse verwendet. Weitere komplexeren Algorithmen wie DNN und SVM werden in der Industrie aufgrund ihrer Robustheit in mehrdimensionalen Fragestellungen eingesetzt und eignen sich ebenfalls für unseren Anwendungsfall            
+     
+
+
+*	Aus der Business Perspektive ist es Aufgabe des Pumpenhersteller zu beschließen, wie die Ausgaben eines ML-Modelles an den Endkunden zu kommunizieren sind. Sollte beispielsweise ein Hinweis zur Reinigung vom Pumpenfilter gesendet werden, könnten sich diese eventuell nur auf Tagesstunden einschränken      
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
